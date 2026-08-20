@@ -479,87 +479,192 @@ function fitCanvas(cv){
   }, 600);
 })();
 
-/* ============ 04 · empuxo ============
-   Um bocal, uma pluma e um acelerador. A câmara bate a 7 Hz o tempo
-   todo; o que muda com o acelerador é o comprimento da pluma e o
-   espaçamento dos diamantes de mach. */
+/* ============ 04 · pasta ============
+   Fila de transferência entre duas pastas. O empuxo é o mesmo para todo
+   arquivo; o que muda é a massa, que aqui é o tamanho dele — então
+   a = F/m e um PSD de 240 MB sai devagar e chega depois de um .md de
+   200 KB lançado atrás. Cada item acelera metade do caminho, vira o
+   escape e freia a outra metade, chegando com velocidade zero na boca da
+   pasta de destino. */
 (function(){
-  var cv = document.getElementById("c-plume");
+  var cv = document.getElementById("c-pasta");
   var ctx = fitCanvas(cv);
-  var thrEl = document.getElementById("plume-thr"), modeEl = document.getElementById("plume-mode");
-  var thr = .35, manual = -1, surge = 0, shown = -1, wasManual = null, last = 0;
+  var nomeEl = document.getElementById("pt-nome");
+  var contEl = document.getElementById("pt-cont");
+  var taxaEl = document.getElementById("pt-taxa");
 
-  cv.addEventListener("pointermove", function(e){
-    var r = cv.getBoundingClientRect();
-    manual = Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height));
-  });
-  cv.addEventListener("pointerleave", function(){ manual = -1; });
-  cv.addEventListener("pointerdown", function(){ surge = 1; });
+  var F = 2.2;                       /* empuxo, em unidades de u/s²      */
+  var GAP = .85;                     /* intervalo entre lançamentos      */
+  var LOTE = [
+    ["marca.svg", .2], ["notas.md", .1], ["relatorio.pdf", 2.4],
+    ["captura.png", 4.8], ["globo.psd", 240], ["planilha.csv", .9],
+    ["montagem.mp4", 86], ["paleta.ase", .3], ["contrato.pdf", 1.7],
+    ["render.exr", 128], ["fontes.zip", 32], ["leia-me.txt", .04]
+  ];
+
+  var fila, chegados, voando, prox, entregue, tempo, dir, pausa, last = 0;
+  var pop = { esq: 0, dir: 0 };      /* solavanco da pasta que recebe */
+  var shown = { n: "", c: "", t: "" };
+
+  function novoLote(){
+    fila = LOTE.map(function(f, i){ return { n: f[0], mb: f[1], i: i }; });
+    /* embaralha para a ordem de chegada mudar a cada rodada */
+    for (var i = fila.length - 1; i > 0; i--){
+      var j = Math.floor(Math.random() * (i + 1)), t = fila[i]; fila[i] = fila[j]; fila[j] = t;
+    }
+    chegados = []; voando = []; prox = .5; entregue = 0; tempo = 0; pausa = 0;
+  }
+  dir = 1; novoLote();
+
+  function lanca(){
+    if (!fila.length) return;
+    var f = fila.shift();
+    f.u = 0; f.v = 0;
+    f.m = .5 + f.mb / 60;            /* massa: o tamanho do arquivo      */
+    f.a = F / f.m;
+    voando.push(f);
+    nomeEl.textContent = f.n + " · " + (f.mb < 1 ? (f.mb * 1024).toFixed(0) + " KB" : f.mb + " MB");
+    shown.n = nomeEl.textContent;
+  }
+
+  cv.addEventListener("pointerdown", function(){ if (fila.length){ prox = 0; } });
+
+  /* curva de voo: sai pela boca de uma pasta e entra pela da outra */
+  function bez(t, p0, p1, p2){
+    var k = 1 - t;
+    return { x: k * k * p0.x + 2 * k * t * p1.x + t * t * p2.x,
+             y: k * k * p0.y + 2 * k * t * p1.y + t * t * p2.y };
+  }
+
+  function pastaPath(x, y, pw, ph){
+    ctx.beginPath();
+    ctx.moveTo(x, y + ph - 8);
+    ctx.lineTo(x, y + 12);
+    ctx.quadraticCurveTo(x, y + 2, x + 10, y + 2);
+    ctx.lineTo(x + pw * .40, y + 2);
+    ctx.lineTo(x + pw * .48, y + 14);
+    ctx.lineTo(x + pw - 10, y + 14);
+    ctx.quadraticCurveTo(x + pw, y + 14, x + pw, y + 24);
+    ctx.lineTo(x + pw, y + ph - 8);
+    ctx.quadraticCurveTo(x + pw, y + ph, x + pw - 10, y + ph);
+    ctx.lineTo(x + 10, y + ph);
+    ctx.quadraticCurveTo(x, y + ph, x, y + ph - 8);
+    ctx.closePath();
+  }
+
+  function ficha(x, y, ang, esc){
+    ctx.save();
+    ctx.translate(x, y); ctx.rotate(ang); ctx.scale(esc, esc);
+    ctx.fillStyle = css("--accent");
+    ctx.beginPath();
+    ctx.moveTo(-11, -14); ctx.lineTo(5, -14); ctx.lineTo(11, -8);
+    ctx.lineTo(11, 14); ctx.lineTo(-11, 14); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = css("--accent-ink");
+    ctx.fillRect(-7, 2, 14, 1.6);
+    ctx.fillRect(-7, 6, 10, 1.6);
+    ctx.restore();
+  }
 
   whenVisible(cv, function(t){
-    var dt = Math.min(.05, t - last); last = t;
-    var w = cv._w, h = cv._h, col = css("--accent");
-    ctx.clearRect(0, 0, w, h);
+    var dt = Math.min(.04, t - last); last = t;
+    var W = cv._w, H = cv._h;
+    var col = css("--accent"), trk = css("--track"), mut = css("--text-mut");
+    ctx.clearRect(0, 0, W, H);
 
-    surge *= Math.pow(.2, dt);
-    var alvo = manual >= 0 ? manual : .45 + .3 * Math.sin(t * .7) * Math.sin(t * .23 + 1);
-    thr += (Math.min(1, alvo + surge) - thr) * Math.min(1, dt * 6);
+    var pw = 116, ph = 88, cy = H * .5 - ph / 2;
+    var ex = W * .16, dx = W * .84 - pw;
+    var esq = { x: ex, y: cy }, dirp = { x: dx, y: cy };
+    var de = dir > 0 ? esq : dirp, para = dir > 0 ? dirp : esq;
+    var p0 = { x: de.x + (dir > 0 ? pw : 0), y: de.y + ph * .45 };
+    var p2 = { x: para.x + (dir > 0 ? 0 : pw), y: para.y + ph * .45 };
+    var p1 = { x: (p0.x + p2.x) / 2, y: cy - H * .16 };
 
-    var cx = w / 2, top = h * .20;
-    var bell = Math.min(w, h) * .13;
-    var len = h * .28 + h * .48 * thr;
-    var beat = .5 + .5 * Math.sin(t * 44);          /* ~7 Hz na câmara */
+    /* ---- fila e voo ---- */
+    tempo += dt;
+    if (!fila.length && !voando.length){
+      pausa += dt;
+      if (pausa > 1.3){ dir = -dir; novoLote(); }
+    } else {
+      prox -= dt;
+      if (prox <= 0 && fila.length){ lanca(); prox = GAP; }
+    }
 
-    /* bocal */
-    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.globalAlpha = .9;
+    voando = voando.filter(function(f){
+      if (f.u < .5) f.v += f.a * dt; else f.v -= f.a * dt;
+      f.u += f.v * dt;
+      if (f.u >= 1 || (f.u > .5 && f.v <= 0)){
+        chegados.push(f); entregue += f.mb;
+        pop[dir > 0 ? "dir" : "esq"] = .25;  /* a pasta engole com um solavanco */
+        return false;
+      }
+      return true;
+    });
+
+    /* ---- caminho ---- */
+    ctx.setLineDash([3, 7]); ctx.strokeStyle = col; ctx.globalAlpha = .22; ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.moveTo(cx - bell * .5, top - bell * .95); ctx.lineTo(cx - bell, top);
-    ctx.moveTo(cx + bell * .5, top - bell * .95); ctx.lineTo(cx + bell, top);
-    ctx.moveTo(cx - bell, top); ctx.lineTo(cx + bell, top);
-    ctx.stroke();
-
-    /* pluma em fatias: largura oscila, opacidade cai com a distância */
-    ctx.fillStyle = col;
-    var slices = 46;
-    for (var i = 0; i < slices; i++){
-      var u = i / slices;
-      var y = top + u * len;
-      var wob = 1 + .10 * Math.sin(u * 16 - t * 9) + .05 * beat;
-      var rad = bell * (1 - u * .5) * (.5 + thr * .6) * wob;
-      ctx.globalAlpha = (1 - u) * (.08 + thr * .26);
-      ctx.beginPath();
-      ctx.ellipse(cx, y, rad, (len / slices) * 1.7, 0, 0, 6.2832);
-      ctx.fill();
+    for (var k = 0; k <= 40; k++){
+      var pt = bez(k / 40, p0, p1, p2);
+      if (k === 0) ctx.moveTo(pt.x, pt.y); else ctx.lineTo(pt.x, pt.y);
     }
+    ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
 
-    /* diamantes de mach: pulsam juntos e se afastam quando o empuxo sobe */
-    var nd = 4, sp = (len / (nd + 1)) * (.72 + thr * .5);
-    for (var d = 0; d < nd; d++){
-      var y2 = top + sp * (d + .85);
-      if (y2 > top + len) break;
-      var k = (1 - d / nd) * (.3 + thr * .7) * (.65 + .35 * Math.sin(t * 44 - d));
-      var rr = bell * (.44 - d * .07) * (.55 + thr * .65);
-      ctx.globalAlpha = Math.max(0, k);
+    /* ---- pastas ---- */
+    [esq, dirp].forEach(function(p){
+      var lado = p === esq ? "esq" : "dir";
+      var n = (p === de) ? fila.length : chegados.length;
+      var s = 1 + pop[lado] * .3;
+      pop[lado] = Math.max(0, pop[lado] - dt);
+      ctx.save();
+      ctx.translate(p.x + pw / 2, p.y + ph / 2); ctx.scale(s, s);
+      ctx.translate(-(p.x + pw / 2), -(p.y + ph / 2));
+      pastaPath(p.x, p.y, pw, ph);
+      ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.stroke();
+      /* pilha rasa no fundo, só para a pasta não parecer vazia */
+      ctx.fillStyle = col; ctx.globalAlpha = .26;
+      for (var i = 0; i < Math.min(n, 3); i++)
+        ctx.fillRect(p.x + 16, p.y + ph - 13 - i * 6, pw - 32, 2.4);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col;
+      ctx.font = '600 21px "Inter", -apple-system, "Segoe UI", sans-serif';
+      ctx.textAlign = "center";
+      ctx.fillText(String(n), p.x + pw / 2, p.y + ph * .53);
+      ctx.fillStyle = mut;
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      ctx.fillText(p === esq ? "trabalho" : "backup", p.x + pw / 2, p.y + ph + 18);
+      ctx.restore();
+    });
+
+    /* ---- arquivos em voo ---- */
+    voando.forEach(function(f){
+      var q = bez(f.u, p0, p1, p2);
+      var q2 = bez(Math.min(1, f.u + .02), p0, p1, p2);
+      var ang = Math.atan2(q2.y - q.y, q2.x - q.x) * .35;   /* inclina, não tomba */
+      var freia = f.u >= .5;
+      /* escape: atrás enquanto acelera, na frente quando freia */
+      var s = freia ? 1 : -1;
+      var fl = 12 + 16 * Math.min(1, f.m / 3) * (.8 + .2 * Math.sin(t * 40));
+      var ux = q2.x - q.x, uy = q2.y - q.y, um = Math.hypot(ux, uy) || 1;
+      ux /= um; uy /= um;
+      var bx = q.x + ux * s * 13, by = q.y + uy * s * 13;
+      var g = ctx.createLinearGradient(bx, by, bx + ux * s * fl, by + uy * s * fl);
+      g.addColorStop(0, col); g.addColorStop(1, "transparent");
+      ctx.fillStyle = g; ctx.globalAlpha = .8;
       ctx.beginPath();
-      ctx.moveTo(cx, y2 - rr * 1.5); ctx.lineTo(cx + rr, y2);
-      ctx.lineTo(cx, y2 + rr * 1.5); ctx.lineTo(cx - rr, y2);
-      ctx.closePath(); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+      ctx.moveTo(bx - uy * 5, by + ux * 5);
+      ctx.lineTo(bx + uy * 5, by - ux * 5);
+      ctx.lineTo(bx + ux * s * fl + uy * 1.5, by + uy * s * fl - ux * 1.5);
+      ctx.lineTo(bx + ux * s * fl - uy * 1.5, by + uy * s * fl + ux * 1.5);
+      ctx.closePath(); ctx.fill(); ctx.globalAlpha = 1;
+      ficha(q.x, q.y, ang, 1);
+    });
 
-    /* acelerador */
-    var gx = w - 40, gy0 = h * .2, gy1 = h * .8;
-    ctx.strokeStyle = css("--track"); ctx.lineWidth = 6;
-    ctx.beginPath(); ctx.moveTo(gx, gy0); ctx.lineTo(gx, gy1); ctx.stroke();
-    ctx.strokeStyle = col;
-    ctx.beginPath(); ctx.moveTo(gx, gy1); ctx.lineTo(gx, gy1 - (gy1 - gy0) * thr); ctx.stroke();
-    ctx.fillStyle = col;
-    ctx.beginPath(); ctx.arc(gx, gy1 - (gy1 - gy0) * thr, 4.5 + beat * 2.5, 0, 6.2832); ctx.fill();
-
-    var pc = Math.round(thr * 100);
-    if (pc !== shown){ shown = pc; thrEl.textContent = pc + "%"; }
-    var md = manual >= 0;
-    if (md !== wasManual){ wasManual = md; modeEl.textContent = md ? "manual" : "automático"; }
+    /* ---- telemetria ---- */
+    var c = fila.length + " na fila · " + chegados.length + " entregues";
+    var taxa = (entregue / Math.max(.6, tempo)).toFixed(1) + " MB/s";
+    if (c !== shown.c){ shown.c = c; contEl.textContent = c; }
+    if (taxa !== shown.t){ shown.t = taxa; taxaEl.textContent = taxa; }
   });
 })();
 

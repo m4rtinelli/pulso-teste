@@ -233,7 +233,7 @@ main{position:relative; z-index:1}
   letter-spacing:.12em; text-transform:uppercase; color:var(--text-mut); padding:4px}
 .linkbtn:hover{color:var(--text)}
 
-/* ============ 04 · empuxo ============ */
+/* ============ 04 · pasta ============ */
 .legend-tl{position:absolute; left:16px; top:14px; font-family:var(--mono); font-size:10.5px;
   letter-spacing:.12em; color:var(--text-mut); line-height:1.8; pointer-events:none}
 
