@@ -92,12 +92,28 @@ function fitCanvas(cv){
   return cv.getContext("2d");
 }
 
-/* ============ 01 · halo ============ */
+/* ============ 01 · impulso ============
+   Marcha lenta constante e um surto no clique: a casca recua, a câmara
+   acende e o escape sai por baixo do botão. O empuxo volta sozinho para
+   a marcha lenta em pouco mais de um segundo. */
 (function(){
-  var btn = document.getElementById("btn-halo");
-  var out = document.getElementById("halo-count");
-  var n = 0;
+  var cv = document.getElementById("c-thrust");
+  var ctx = fitCanvas(cv);
+  var btn = document.getElementById("btn-thrust");
+  var shell = document.getElementById("btn-shell");
+  var cut = document.getElementById("btn-cut");
+  var out = document.getElementById("thrust-count");
+  var parts = [], power = .12, acc = 0, shown = -1;
+
+  /* a boca do escape é a base do botão, medida a cada quadro */
+  function nozzle(){
+    var r = btn.getBoundingClientRect(), c = cv.getBoundingClientRect();
+    return { x: r.left - c.left + r.width / 2, y: r.bottom - c.top - 6, w: r.width * .42 };
+  }
+
   btn.addEventListener("click", function(e){
+    power = 1;
+    shell.classList.remove("fire"); void shell.offsetWidth; shell.classList.add("fire");
     var r = btn.getBoundingClientRect();
     var d = document.createElement("span");
     d.className = "ripple";
@@ -106,109 +122,136 @@ function fitCanvas(cv){
     d.style.width = d.style.height = Math.max(r.width, r.height) / 4 + "px";
     btn.appendChild(d);
     setTimeout(function(){ d.remove(); }, 700);
-    n++;
-    out.textContent = n + (n === 1 ? " disparo" : " disparos");
+  });
+  cut.addEventListener("click", function(){ power = 0; });
+
+  var last = 0;
+  whenVisible(cv, function(t){
+    var dt = Math.min(.05, t - last); last = t;
+    var w = cv._w, h = cv._h, col = css("--accent");
+    ctx.clearRect(0, 0, w, h);
+
+    power += (.12 - power) * Math.min(1, dt * 1.9);   /* tudo tende à marcha lenta */
+    var n = nozzle();
+
+    /* jato colado no bocal: o núcleo que não apaga */
+    var jl = 54 + power * 150;
+    var g = ctx.createLinearGradient(0, n.y, 0, n.y + jl);
+    g.addColorStop(0, col); g.addColorStop(1, "transparent");
+    ctx.fillStyle = g; ctx.globalAlpha = .14 + power * .4;
+    ctx.beginPath();
+    ctx.moveTo(n.x - n.w * .62, n.y);
+    ctx.lineTo(n.x + n.w * .62, n.y);
+    ctx.lineTo(n.x + n.w * .18, n.y + jl);
+    ctx.lineTo(n.x - n.w * .18, n.y + jl);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+
+    /* emissão proporcional ao empuxo */
+    acc += (12 + power * 250) * dt;
+    while (acc >= 1){
+      acc -= 1;
+      parts.push({
+        x: n.x + (Math.random() - .5) * n.w,
+        y: n.y,
+        vx: (Math.random() - .5) * 46,
+        vy: 70 + power * 520 + Math.random() * 90,
+        life: 0, max: .5 + Math.random() * .5,
+        r: .8 + Math.random() * 1.6
+      });
+    }
+
+    ctx.strokeStyle = col; ctx.lineCap = "round";
+    parts = parts.filter(function(p){
+      p.life += dt;
+      if (p.life > p.max || p.y > h + 20) return false;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 60 * dt; p.vx *= .99;
+      var k = 1 - p.life / p.max;
+      ctx.globalAlpha = k * .8;
+      ctx.lineWidth = p.r * k * 2;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * .02, p.y - p.vy * .022);   /* rastro no sentido do voo */
+      ctx.stroke();
+      return true;
+    });
+    ctx.globalAlpha = 1;
+
+    var pc = Math.round(power * 100);
+    if (pc !== shown){
+      shown = pc;
+      out.textContent = pc <= 13 ? "marcha lenta" : "empuxo " + pc + "%";
+    }
   });
 })();
 
-/* ============ 02 · enxame ============
-   Cada nó pulsa na fase que sorteou. Um fator de coerência sobe a cada
-   ~15s e puxa todas as fases para o mesmo ponto: o campo passa de
-   cintilação para batida em uníssono, e volta. */
+/* ============ 02 · aceleração ============
+   O campo inteiro corre para fora do ponto de fuga. A velocidade fica
+   em 1× quase o tempo todo e dá surtos curtos: no surto o rastro estica,
+   que é como a aceleração se lê — comprimento, não posição. */
 (function(){
-  var cv = document.getElementById("c-swarm");
+  var cv = document.getElementById("c-warp");
   var ctx = fitCanvas(cv);
-  var parts = [], waves = [], mx = -999, my = -999;
-  var nEl = document.getElementById("swarm-n"), cEl = document.getElementById("swarm-coh");
+  var vEl = document.getElementById("warp-v"), nEl = document.getElementById("warp-n");
+  var st = [], boost = 0, nextPulse = 2.5, fx = .5, fy = .5, last = 0, shown = "";
 
+  function spawn(z){
+    return { a: Math.random() * 6.2832, r: .05 + Math.random() * .95, z: z, prev: 0 };
+  }
   function seed(){
     var w = cv._w, h = cv._h;
-    var target = Math.round(Math.max(50, Math.min(130, (w * h) / 3200)));
-    parts = [];
-    for (var i = 0; i < target; i++){
-      parts.push({
-        x: Math.random() * w, y: Math.random() * h,
-        vx: (Math.random() - .5) * 14, vy: (Math.random() - .5) * 14,
-        r: 1.6 + Math.random() * 2.6,
-        ph: Math.random() * Math.PI * 2,
-        boost: 0
-      });
-    }
-    nEl.textContent = parts.length;
+    var n = Math.round(Math.max(90, Math.min(240, (w * h) / 1700)));
+    st = [];
+    for (var i = 0; i < n; i++) st.push(spawn(.05 + Math.random() * .95));
+    nEl.textContent = st.length;
   }
   seed();
   if (window.ResizeObserver) new ResizeObserver(function(){ seed(); }).observe(cv);
 
   cv.addEventListener("pointermove", function(e){
-    var r = cv.getBoundingClientRect(); mx = e.clientX - r.left; my = e.clientY - r.top;
-  });
-  cv.addEventListener("pointerleave", function(){ mx = my = -999; });
-  cv.addEventListener("pointerdown", function(e){
     var r = cv.getBoundingClientRect();
-    waves.push({ x: e.clientX - r.left, y: e.clientY - r.top, t: 0 });
+    fx = (e.clientX - r.left) / r.width;
+    fy = (e.clientY - r.top) / r.height;
   });
+  cv.addEventListener("pointerleave", function(){ fx = fy = .5; });
+  cv.addEventListener("pointerdown", function(){ boost = 1; });
 
-  var last = 0;
   whenVisible(cv, function(t){
     var dt = Math.min(.05, t - last); last = t;
-    var w = cv._w, h = cv._h, acc = css("--accent") || "#fff";
+    var w = cv._w, h = cv._h, col = css("--accent");
+    var cx = w * fx, cy = h * fy, R = Math.min(w, h) * .5;
+    var diag = Math.hypot(w, h);
     ctx.clearRect(0, 0, w, h);
 
-    /* coerência: quase sempre zero, com picos curtos de sincronia */
-    var coh = Math.pow(Math.max(0, Math.sin(t * .42)), 6);
-    cEl.textContent = Math.round(coh * 100) + "%";
+    if (t > nextPulse){ boost = 1; nextPulse = t + 4 + Math.random() * 3; }
+    boost *= Math.pow(.28, dt);                 /* surto decai em ~1.2s */
+    var speed = 1 + boost * 8;
 
-    /* ondas de choque emitidas pelo clique */
-    waves = waves.filter(function(v){ return v.t < 2.4; });
-    waves.forEach(function(v){
-      v.t += dt;
-      ctx.beginPath(); ctx.arc(v.x, v.y, v.t * 420, 0, 6.2832);
-      ctx.strokeStyle = acc; ctx.globalAlpha = Math.max(0, .45 - v.t * .22);
-      ctx.lineWidth = 2; ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = col; ctx.lineCap = "round";
+    st.forEach(function(p){
+      p.prev = p.r * R * (1 / p.z - 1);
+      p.z -= dt * .30 * speed;
+      if (p.z < .04){ var q = spawn(1); p.a = q.a; p.r = q.r; p.z = 1; p.prev = 0; }
+      var rad = p.r * R * (1 / p.z - 1);
+      if (rad > diag){ var s = spawn(1); p.a = s.a; p.r = s.r; p.z = 1; return; }
+      var ca = Math.cos(p.a), sa = Math.sin(p.a);
+      var k = Math.min(1, (1 - p.z) * 1.5);
+      ctx.globalAlpha = .12 + k * .8;
+      ctx.lineWidth = .6 + k * 2.4;
+      ctx.beginPath();
+      ctx.moveTo(cx + ca * p.prev, cy + sa * p.prev);
+      ctx.lineTo(cx + ca * rad, cy + sa * rad);
+      ctx.stroke();
     });
 
-    /* ligações locais: só aparecem perto do ponteiro ou no pico de coerência */
-    ctx.lineWidth = 1; ctx.strokeStyle = acc;
-    for (var i = 0; i < parts.length; i++){
-      var a = parts[i];
-      for (var j = i + 1; j < parts.length; j++){
-        var b = parts[j], dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy;
-        if (d2 > 9500) continue;
-        var near = Math.min(Math.hypot(a.x - mx, a.y - my), Math.hypot(b.x - mx, b.y - my));
-        var k = (1 - d2 / 9500) * (near < 160 ? .45 : .08 + coh * .16);
-        ctx.globalAlpha = k * .45;
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-      }
-    }
+    /* o ponto de fuga também bate, no ritmo do surto */
+    ctx.globalAlpha = .25 + boost * .6;
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(cx, cy, 2 + boost * 5, 0, 6.2832); ctx.fill();
     ctx.globalAlpha = 1;
 
-    parts.forEach(function(p){
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      if (p.x < 0) p.x += w; if (p.x > w) p.x -= w;
-      if (p.y < 0) p.y += h; if (p.y > h) p.y -= h;
-
-      waves.forEach(function(v){
-        var d = Math.hypot(p.x - v.x, p.y - v.y), front = v.t * 420;
-        if (Math.abs(d - front) < 48) p.boost = Math.max(p.boost, 1 - Math.abs(d - front) / 48);
-      });
-      p.boost *= .955;
-
-      var dm = Math.hypot(p.x - mx, p.y - my);
-      var near = dm < 175 ? (1 - dm / 175) : 0;
-      /* a fase é apagada conforme a coerência sobe → todos batem juntos */
-      var s = .5 + .5 * Math.sin(t * 2.2 + p.ph * (1 - coh));
-      var amp = .75 + near * .9 + p.boost * 1.7 + coh * .5;
-      var rr = p.r * (.55 + s * amp);
-      var al = .12 + s * (.5 + near * .35 + coh * .25) + p.boost * .45;
-
-      ctx.beginPath(); ctx.arc(p.x, p.y, rr, 0, 6.2832);
-      ctx.fillStyle = acc; ctx.globalAlpha = Math.min(1, al); ctx.fill();
-
-      /* halo largo: é ele que faz a batida se ler como luz */
-      ctx.beginPath(); ctx.arc(p.x, p.y, rr * 2.6, 0, 6.2832);
-      ctx.globalAlpha = Math.min(.3, (s * .10) + near * .12 + p.boost * .18 + coh * .06);
-      ctx.fill(); ctx.globalAlpha = 1;
-    });
+    var v = speed.toFixed(1) + "×";
+    if (v !== shown){ shown = v; vEl.textContent = v; }
   });
 })();
 
@@ -267,67 +310,87 @@ function fitCanvas(cv){
   }, 600);
 })();
 
-/* ============ 04 · sonar ============ */
+/* ============ 04 · empuxo ============
+   Um bocal, uma pluma e um acelerador. A câmara bate a 7 Hz o tempo
+   todo; o que muda com o acelerador é o comprimento da pluma e o
+   espaçamento dos diamantes de mach. */
 (function(){
-  var cv = document.getElementById("c-sonar");
+  var cv = document.getElementById("c-plume");
   var ctx = fitCanvas(cv);
-  var hitsEl = document.getElementById("sonar-hits");
-  var blips = [], period = 4.2, prevAng = 0;
+  var thrEl = document.getElementById("plume-thr"), modeEl = document.getElementById("plume-mode");
+  var thr = .35, manual = -1, surge = 0, shown = -1, wasManual = null, last = 0;
 
-  function seed(){
-    blips = [];
-    var n = 7 + Math.floor(Math.random() * 4);
-    for (var i = 0; i < n; i++){
-      blips.push({ a: Math.random() * 6.2832, d: .18 + Math.random() * .78, lit: 0 });
-    }
-    hitsEl.textContent = blips.length;
-  }
-  seed();
+  cv.addEventListener("pointermove", function(e){
+    var r = cv.getBoundingClientRect();
+    manual = Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height));
+  });
+  cv.addEventListener("pointerleave", function(){ manual = -1; });
+  cv.addEventListener("pointerdown", function(){ surge = 1; });
 
   whenVisible(cv, function(t){
-    var w = cv._w, h = cv._h, cx = w / 2, cy = h / 2;
-    var R = Math.min(w, h) * .42;
-    var acc = css("--accent"), track = css("--track");
+    var dt = Math.min(.05, t - last); last = t;
+    var w = cv._w, h = cv._h, col = css("--accent");
     ctx.clearRect(0, 0, w, h);
 
-    ctx.strokeStyle = track; ctx.lineWidth = 1;
-    for (var i = 1; i <= 4; i++){
-      ctx.beginPath(); ctx.arc(cx, cy, R * i / 4, 0, 6.2832); ctx.stroke();
-    }
-    ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
+    surge *= Math.pow(.2, dt);
+    var alvo = manual >= 0 ? manual : .45 + .3 * Math.sin(t * .7) * Math.sin(t * .23 + 1);
+    thr += (Math.min(1, alvo + surge) - thr) * Math.min(1, dt * 6);
 
-    var pu = (t / 2.1) % 1;
-    ctx.beginPath(); ctx.arc(cx, cy, R * pu, 0, 6.2832);
-    ctx.strokeStyle = acc; ctx.globalAlpha = (1 - pu) * .32; ctx.lineWidth = 1.5; ctx.stroke();
+    var cx = w / 2, top = h * .20;
+    var bell = Math.min(w, h) * .13;
+    var len = h * .28 + h * .48 * thr;
+    var beat = .5 + .5 * Math.sin(t * 44);          /* ~7 Hz na câmara */
+
+    /* bocal */
+    ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.lineCap = "round"; ctx.globalAlpha = .9;
+    ctx.beginPath();
+    ctx.moveTo(cx - bell * .5, top - bell * .95); ctx.lineTo(cx - bell, top);
+    ctx.moveTo(cx + bell * .5, top - bell * .95); ctx.lineTo(cx + bell, top);
+    ctx.moveTo(cx - bell, top); ctx.lineTo(cx + bell, top);
+    ctx.stroke();
+
+    /* pluma em fatias: largura oscila, opacidade cai com a distância */
+    ctx.fillStyle = col;
+    var slices = 46;
+    for (var i = 0; i < slices; i++){
+      var u = i / slices;
+      var y = top + u * len;
+      var wob = 1 + .10 * Math.sin(u * 16 - t * 9) + .05 * beat;
+      var rad = bell * (1 - u * .5) * (.5 + thr * .6) * wob;
+      ctx.globalAlpha = (1 - u) * (.08 + thr * .26);
+      ctx.beginPath();
+      ctx.ellipse(cx, y, rad, (len / slices) * 1.7, 0, 0, 6.2832);
+      ctx.fill();
+    }
+
+    /* diamantes de mach: pulsam juntos e se afastam quando o empuxo sobe */
+    var nd = 4, sp = (len / (nd + 1)) * (.72 + thr * .5);
+    for (var d = 0; d < nd; d++){
+      var y2 = top + sp * (d + .85);
+      if (y2 > top + len) break;
+      var k = (1 - d / nd) * (.3 + thr * .7) * (.65 + .35 * Math.sin(t * 44 - d));
+      var rr = bell * (.44 - d * .07) * (.55 + thr * .65);
+      ctx.globalAlpha = Math.max(0, k);
+      ctx.beginPath();
+      ctx.moveTo(cx, y2 - rr * 1.5); ctx.lineTo(cx + rr, y2);
+      ctx.lineTo(cx, y2 + rr * 1.5); ctx.lineTo(cx - rr, y2);
+      ctx.closePath(); ctx.fill();
+    }
     ctx.globalAlpha = 1;
 
-    var ang = (t / period) * 6.2832 % 6.2832;
-    for (var s = 0; s < 100; s++){
-      var a = ang - s * .012;
-      ctx.beginPath(); ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
-      ctx.strokeStyle = acc; ctx.globalAlpha = (1 - s / 100) * .16; ctx.lineWidth = 2.4; ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
+    /* acelerador */
+    var gx = w - 40, gy0 = h * .2, gy1 = h * .8;
+    ctx.strokeStyle = css("--track"); ctx.lineWidth = 6;
+    ctx.beginPath(); ctx.moveTo(gx, gy0); ctx.lineTo(gx, gy1); ctx.stroke();
+    ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.moveTo(gx, gy1); ctx.lineTo(gx, gy1 - (gy1 - gy0) * thr); ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(gx, gy1 - (gy1 - gy0) * thr, 4.5 + beat * 2.5, 0, 6.2832); ctx.fill();
 
-    blips.forEach(function(b){
-      var da = ((ang - b.a) % 6.2832 + 6.2832) % 6.2832;
-      if (da < .09) b.lit = 1;
-      b.lit *= .988;
-      var x = cx + Math.cos(b.a) * R * b.d, y = cy + Math.sin(b.a) * R * b.d;
-      var rr = 3 + b.lit * 3;
-      ctx.beginPath(); ctx.arc(x, y, rr, 0, 6.2832);
-      ctx.fillStyle = acc; ctx.globalAlpha = .16 + b.lit * .84; ctx.fill();
-      if (b.lit > .05){
-        ctx.beginPath(); ctx.arc(x, y, rr + (1 - b.lit) * 26, 0, 6.2832);
-        ctx.strokeStyle = acc; ctx.lineWidth = 1.4; ctx.globalAlpha = b.lit * .5; ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
-    });
-
-    if (ang < prevAng) seed();
-    prevAng = ang;
+    var pc = Math.round(thr * 100);
+    if (pc !== shown){ shown = pc; thrEl.textContent = pc + "%"; }
+    var md = manual >= 0;
+    if (md !== wasManual){ wasManual = md; modeEl.textContent = md ? "manual" : "automático"; }
   });
 })();
 
@@ -446,19 +509,215 @@ function fitCanvas(cv){
   });
 })();
 
-/* ============ 10 · letra ============ */
+/* ============ 10 · manobra ============
+   Um slider e um interruptor movidos a empuxo, sem uma curva de easing
+   sequer. O controlador é bang-bang: empurra na direção do alvo, vira e
+   freia — e começa a frear cedo o bastante para caber a virada, porque
+   girar leva tempo e ninguém queima motor girando. O resultado chega com
+   velocidade zero no ponto pedido, que é o que easing nenhum garante. */
 (function(){
-  var host = document.getElementById("wordmark");
-  var texto = "everblue";
-  for (var i = 0; i < texto.length; i++){
-    var s = document.createElement("span");
-    s.textContent = texto[i];
-    s.style.animationDelay = (i * 0.06) + "s";
-    host.appendChild(s);
+  var cv = document.getElementById("c-move");
+  var ctx = fitCanvas(cv);
+  var valEl = document.getElementById("mv-val"), stEl = document.getElementById("mv-state");
+  var A = 2600;            /* empuxo: aceleração constante, px/s²   */
+  var TF = .22;            /* tempo de uma virada de 180°           */
+  var last = 0, init = 0, idle = 0, drag = false, shownV = "", shownS = "";
+
+  function mover(){ return { x:0, v:0, target:0, thrust:0, ang:0, want:0, emit:0, puffs:[], state:"acoplado" }; }
+  var sl = mover(), tg = mover();
+  tg.on = false;
+
+  /* ---- o controlador, um só para os dois componentes ---- */
+  function step(m, dt){
+    var d = m.target - m.x, sp = Math.abs(m.v);
+    var parado = Math.abs(d) < .8 && sp < 8;
+
+    if (parado){
+      m.x = m.target; m.v = 0; m.thrust = 0; m.state = "acoplado";
+    } else {
+      var dir = d >= 0 ? 1 : -1;
+      var indo = m.v * dir > 0;
+      /* distância de frenagem + o quanto ele ainda anda enquanto gira */
+      var freio = (m.v * m.v) / (2 * A) + sp * TF;
+      var freando = indo && Math.abs(d) <= freio;
+      m.thrust = freando ? (m.v > 0 ? -1 : 1) : dir;
+      m.want = m.thrust > 0 ? 0 : Math.PI;
+      m.state = freando ? "freando" : "acelerando";
+    }
+
+    var da = m.want - m.ang;
+    while (da > Math.PI) da -= 6.2832;
+    while (da < -Math.PI) da += 6.2832;
+    if (Math.abs(da) > .25 && !parado){ m.thrust = 0; m.state = "virada"; }  /* girando não queima */
+
+    if (!parado){
+      m.v += m.thrust * A * dt;
+      m.x += m.v * dt;
+      if (m.x < m.min){ m.x = m.min; m.v = 0; }
+      if (m.x > m.max){ m.x = m.max; m.v = 0; }
+    }
+
+    var giro = (Math.PI / TF) * dt;
+    m.ang += Math.abs(da) < giro ? da : (da > 0 ? giro : -giro);
   }
-  var caret = document.createElement("span");
-  caret.className = "caret";
-  host.appendChild(caret);
+
+  /* onde a virada vai acontecer, resolvido de verdade:
+     (1/A)·v² + TF·v − (s + u²/2A) = 0 → v de virada → distância até lá */
+  function pontoDeVirada(m){
+    var s = Math.abs(m.target - m.x), u = Math.abs(m.v);
+    var v = (-TF + Math.sqrt(TF * TF + 4 * (s + u * u / (2 * A)) / A)) / (2 / A);
+    var p = (v * v - u * u) / (2 * A);
+    return m.x + (m.target >= m.x ? 1 : -1) * Math.max(0, p);
+  }
+
+  function solta(m, y){
+    if (!m.thrust) return;
+    m.puffs.push({
+      x: m.x - m.thrust * 16, y: y + (Math.random() - .5) * 7,
+      vx: -m.thrust * (140 + Math.random() * 240) + m.v * .3,
+      vy: (Math.random() - .5) * 70,
+      r: 1.4 + Math.random() * 3, life: 0, max: .4 + Math.random() * .4
+    });
+  }
+
+  function puffs(m, col){
+    ctx.fillStyle = col;
+    m.puffs = m.puffs.filter(function(p){
+      p.life += dtG;
+      if (p.life > p.max) return false;
+      p.x += p.vx * dtG; p.y += p.vy * dtG; p.vx *= .94; p.vy *= .94;
+      var k = 1 - p.life / p.max;
+      ctx.globalAlpha = k * .45;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (1 + (1 - k) * 1.8), 0, 6.2832); ctx.fill();
+      return true;
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  function rrect(x, y, w, h, r){
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  /* casco com bocal na traseira, virado para o lado do empuxo */
+  function casco(m, y, hw, hh, col, tempo){
+    ctx.save();
+    ctx.translate(m.x, y);
+    ctx.rotate(m.ang);
+    if (m.thrust){
+      var fl = (18 + 26 * (.8 + .2 * Math.sin(tempo * 40)));
+      var g = ctx.createLinearGradient(-hw, 0, -hw - fl, 0);
+      g.addColorStop(0, col); g.addColorStop(1, "transparent");
+      ctx.fillStyle = g; ctx.globalAlpha = .85;
+      ctx.beginPath();
+      ctx.moveTo(-hw, -hh * .55); ctx.lineTo(-hw, hh * .55);
+      ctx.lineTo(-hw - fl, hh * .16); ctx.lineTo(-hw - fl, -hh * .16);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = col;
+    rrect(-hw, -hh, hw * 2, hh * 2, Math.min(hw, hh)); ctx.fill();
+    ctx.restore();
+  }
+
+  var dtG = 0;
+
+  /* ---- entrada ---- */
+  function alvoNaPista(e){
+    var r = cv.getBoundingClientRect();
+    var x = e.clientX - r.left;
+    sl.target = Math.max(sl.min, Math.min(sl.max, x));
+    idle = -2.4;
+  }
+  cv.addEventListener("pointerdown", function(e){
+    var r = cv.getBoundingClientRect(), y = e.clientY - r.top;
+    if (y > cv._h * .60){ tg.on = !tg.on; tg.target = tg.on ? tg.max : tg.min; idle = -2.4; }
+    else { drag = true; cv.setPointerCapture(e.pointerId); alvoNaPista(e); }
+  });
+  cv.addEventListener("pointermove", function(e){ if (drag) alvoNaPista(e); });
+  cv.addEventListener("pointerup", function(){ drag = false; });
+  cv.addEventListener("pointercancel", function(){ drag = false; });
+
+  whenVisible(cv, function(t){
+    var dt = Math.min(.04, t - last); last = t; dtG = dt;
+    var w = cv._w, h = cv._h;
+    var col = css("--accent"), ink = css("--accent-ink"), trk = css("--track"), mut = css("--text-mut");
+    ctx.clearRect(0, 0, w, h);
+
+    /* geometria (recalculada: o canvas pode mudar de tamanho) */
+    var x0 = 70, x1 = w - 70, ty = h * .40;
+    var cx = w / 2, py = h * .74, pw = 104, ph = 44, kr = 15;
+    sl.min = x0; sl.max = x1;
+    tg.min = cx - pw / 2 + ph / 2; tg.max = cx + pw / 2 - ph / 2;
+    if (!init){
+      init = 1;
+      sl.x = sl.target = x0 + (x1 - x0) * .25;
+      tg.x = tg.target = tg.min;
+    }
+
+    /* piloto automático quando ninguém mexe */
+    idle += dt;
+    if (idle > 3.2 && sl.state === "acoplado" && tg.state === "acoplado"){
+      idle = 0;
+      sl.target = x0 + (x1 - x0) * Math.random();
+      if (Math.random() < .45){ tg.on = !tg.on; tg.target = tg.on ? tg.max : tg.min; }
+    }
+
+    step(sl, dt); step(tg, dt);
+    sl.emit += 120 * dt; while (sl.emit >= 1){ sl.emit -= 1; solta(sl, ty); }
+    tg.emit += 120 * dt; while (tg.emit >= 1){ tg.emit -= 1; solta(tg, py); }
+
+    /* ---------- slider ---------- */
+    ctx.lineCap = "round";
+    ctx.strokeStyle = trk; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.moveTo(x0, ty); ctx.lineTo(x1, ty); ctx.stroke();
+    ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.moveTo(x0, ty); ctx.lineTo(sl.x, ty); ctx.stroke();
+
+    ctx.strokeStyle = mut; ctx.lineWidth = 1; ctx.globalAlpha = .5;
+    for (var i = 0; i <= 10; i++){
+      var gx = x0 + (x1 - x0) * i / 10;
+      ctx.beginPath(); ctx.moveTo(gx, ty + 16); ctx.lineTo(gx, ty + (i % 5 ? 21 : 25)); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    /* alvo e ponto de virada previsto */
+    if (sl.state !== "acoplado"){
+      ctx.strokeStyle = col; ctx.globalAlpha = .55; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(sl.target, ty - 26); ctx.lineTo(sl.target, ty - 14); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    if (sl.state === "acelerando"){
+      var fx = pontoDeVirada(sl);
+      ctx.strokeStyle = mut; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(fx, ty + 30); ctx.lineTo(fx, ty + 44); ctx.stroke();
+      ctx.fillStyle = mut;
+      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+      ctx.textAlign = "center";
+      ctx.fillText("virada", fx, ty + 58);
+    }
+
+    puffs(sl, col);
+    casco(sl, ty, 19, 12, col, t);
+
+    /* ---------- interruptor ---------- */
+    ctx.fillStyle = tg.on ? col : trk;
+    rrect(cx - pw / 2, py - ph / 2, pw, ph, ph / 2); ctx.fill();
+    var kc = tg.on ? ink : col;
+    puffs(tg, kc);
+    casco(tg, py, kr, kr, kc, t);
+
+    /* ---------- leitura ---------- */
+    var pct = Math.round((sl.x - x0) / (x1 - x0) * 100) + "%";
+    if (pct !== shownV){ shownV = pct; valEl.textContent = pct; cv.setAttribute("aria-valuenow", parseInt(pct, 10)); }
+    var st = sl.state === "acoplado" ? (tg.state === "acoplado" ? "acoplado" : tg.state) : sl.state;
+    if (st !== shownS){ shownS = st; stEl.textContent = st; }
+  });
 })();
 
 })();
