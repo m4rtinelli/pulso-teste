@@ -146,6 +146,9 @@ main{position:relative; z-index:1}
    avança meio traço a partir do raio, que é onde o aro termina */
 .mark svg path{fill:none; stroke:var(--accent); stroke-width:13;
   stroke-linecap:round; stroke-linejoin:round}
+/* o aro é cortado reto nas duas pontas e a de cima é reconstruída por um
+   segmento sobreposto — sobra reta só a ponta de baixo da abertura */
+.mark svg path.aro{stroke-linecap:butt}
 @keyframes markbeat{0%,100%{transform:scale(1)}12%{transform:scale(1.075)}24%{transform:scale(.985)}36%{transform:scale(1.03)}52%{transform:scale(1)}}
 .ring{position:absolute; inset:0; border-radius:50%; border:1.5px solid var(--accent); opacity:0;
   animation:ringout 3.4s cubic-bezier(.2,.7,.3,1) infinite}

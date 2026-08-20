@@ -183,6 +183,12 @@ function fitCanvas(cv){
   }
   /* ângulo 0 = 3h, onde o equador toca a silhueta: é ali que a abertura
      do "e" nasce, qualquer que seja a rotação */
+  /* O corte reto vale só na ponta de baixo da abertura; todo o resto do
+     desenho é arredondado. Como no SVG o linecap vale para as duas pontas
+     do mesmo caminho, o aro vai reto nas duas e a de cima é devolvida ao
+     arredondado por um segmento à parte, desenhado por cima dela: a tampa
+     redonda dele reconstrói a que o aro perdeu, e a outra ponta do
+     segmento fica enterrada dentro do próprio aro. */
   function silhueta(){
     var span = AP * 144;
     var s = ANCHOR ? span : GAP + span / 2;
@@ -192,7 +198,11 @@ function fitCanvas(cv){
       var a = rad(s + (e - s) * i / 120);
       pts.push({ x: R * Math.cos(a), y: R * Math.sin(a) });
     }
-    return ptsToD(pts);
+    /* "de cima" é medido, não suposto: com a abertura solta do vértice o
+       aro pode começar por qualquer lado */
+    var u = pts.length - 1;
+    var cima = pts[0].y <= pts[u].y ? [pts[1], pts[0]] : [pts[u - 1], pts[u]];
+    return [{ d: ptsToD(pts), aro: 1 }, { d: ptsToD(cima), aro: 0 }];
   }
 
   function via(i){
@@ -201,14 +211,18 @@ function fitCanvas(cv){
   }
   function desenha(){
     var rotY = rad(REST_Y + cY), rotX = rad(REST_X + cX);
-    var ds = [silhueta()]
-      .concat(recorta(meridiano(0, rotY, rotX)))
-      .concat(recorta(paralelo(0, rotY, rotX)));
+    var ds = silhueta();
+    var linha = function(d){ ds.push({ d: d, aro: 0 }); };
+    recorta(meridiano(0, rotY, rotX)).forEach(linha);
+    recorta(paralelo(0, rotY, rotX)).forEach(linha);
     var n = Math.max(ds.length, pool.length);
     for (var i = 0; i < n; i++){
       var p = via(i);
-      if (i < ds.length){ p.setAttribute("d", ds[i]); p.removeAttribute("display"); }
-      else p.setAttribute("display", "none");
+      if (i < ds.length){
+        p.setAttribute("d", ds[i].d);
+        p.setAttribute("class", ds[i].aro ? "aro" : "");
+        p.removeAttribute("display");
+      } else p.setAttribute("display", "none");
     }
   }
 
