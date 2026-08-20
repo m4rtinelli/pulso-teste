@@ -22,14 +22,9 @@
 
   <header class="hero">
     <div>
-      <div class="mark">
+      <div class="mark" id="mark">
         <span class="ring"></span><span class="ring"></span><span class="ring"></span>
-        <svg viewBox="0 0 220 220" aria-hidden="true">
-          <circle cx="110" cy="110" r="88" />
-          <path d="M22 110 H198" />
-          <path d="M110 22 A 42 88 0 0 1 110 198" />
-          <path d="M166 131 A 60 60 0 0 1 125 168" />
-        </svg>
+        <svg viewBox="-110 -110 220 220" aria-hidden="true"><g id="mk"></g></svg>
       </div>
       <h1>propulsão</h1>
       <p class="sub">dez elementos · um impulso</p>
@@ -56,6 +51,7 @@
         <div class="copy">
           <span class="num">01</span>
           <h2>impulso</h2>
+          <p>Empurrar é a única coisa que um botão faz: você aciona e alguma coisa sai do lugar. Aqui o gesto fica literal — a força que move a interface sai por baixo dele.</p>
           <ul class="chips">
             <li class="key">botão que empurra</li>
             <li>marcha lenta 2.8s</li>
@@ -79,6 +75,7 @@
         <div class="copy">
           <span class="num">02</span>
           <h2>aceleração</h2>
+          <p>Velocidade não se vê; aceleração sim. O campo existe só para dar ao olho a referência que falta, porque sem nada passando não há propulsão perceptível.</p>
           <ul class="chips">
             <li class="key">partículas pulsando para trás</li>
             <li>surto a cada 4–7s</li>
@@ -111,6 +108,7 @@
         <div class="copy">
           <span class="num">03</span>
           <h2>aviso</h2>
+          <p>É a única propulsão que vem de fora: não é você que empurra, é o sistema que chega. Por isso toda a energia é de chegada, e ela se gasta sozinha.</p>
           <ul class="chips">
             <li class="key">evento ≠ estado</li>
             <li>sino 0.75s</li>
@@ -135,6 +133,7 @@
         <div class="copy">
           <span class="num">04</span>
           <h2>empuxo</h2>
+          <p>As outras nove seções gastam empuxo; esta mostra o empuxo em si. É o mostrador do combustível que a página inteira queima.</p>
           <ul class="chips">
             <li class="key">o pulso na pluma</li>
             <li>quatro diamantes de mach</li>
@@ -157,6 +156,7 @@
         <div class="copy">
           <span class="num">05</span>
           <h2>matriz</h2>
+          <p>Propulsão precisa de um meio para se propagar. A grade é esse meio: a força entra num ponto e atravessa a superfície célula a célula.</p>
           <ul class="chips">
             <li class="key">atraso = distância</li>
             <li>16 × 9 = 144 células</li>
@@ -196,6 +196,7 @@
         <div class="copy">
           <span class="num">06</span>
           <h2>carga</h2>
+          <p>Carregar é acelerar sem sair do lugar. O trabalho existe e o empuxo existe — o que falta é deslocamento, e é isso que a barra confessa.</p>
           <ul class="chips">
             <li class="key">pulsar = espere</li>
             <li>shimmer 1.9s</li>
@@ -242,6 +243,7 @@
         <div class="copy">
           <span class="num">07</span>
           <h2>presença</h2>
+          <p>Gente é a força que move o produto. Cada pulso da lista é alguém empurrando alguma coisa do outro lado da tela, agora.</p>
           <ul class="chips">
             <li class="key">um pulso por lista</li>
             <li>anel 2.2s em quem age</li>
@@ -270,6 +272,7 @@
         <div class="copy">
           <span class="num">08</span>
           <h2>respiro</h2>
+          <p>Nenhum motor queima o tempo todo. O respiro é a marcha lenta da página: a energia mínima para provar que o sistema continua ligado.</p>
           <ul class="chips">
             <li class="key">lento demais para alertar</li>
             <li>ciclo 12s</li>
@@ -300,6 +303,7 @@
         <div class="copy">
           <span class="num">09</span>
           <h2>compasso</h2>
+          <p>Empuxo sem cadência é desperdício. O compasso é o relógio que decide quando queimar — todo motor é, no fundo, uma sequência de explosões na hora certa.</p>
           <ul class="chips">
             <li class="key">o pulso vira relógio</li>
             <li>96 bpm</li>
@@ -325,6 +329,7 @@
         <div class="copy">
           <span class="num">10</span>
           <h2>manobra</h2>
+          <p>Acelerar é fácil; chegar é que é difícil. A mesma força que empurra precisa frear, senão o controle vira estrago — e é isso que separa movimento de destino.</p>
           <ul class="chips">
             <li class="key">controle bang-bang</li>
             <li>acelera · vira · freia</li>

@@ -92,6 +92,161 @@ function fitCanvas(cv){
   return cv.getContext("2d");
 }
 
+
+/* ============ capa · marca do globo ============
+   A mesma geometria do gerador: projeção ortográfica de verdade, com
+   silhueta aberta ("e"), um meridiano e um paralelo recortados onde
+   passam para trás da esfera. O ponteiro pilota rotação e inclinação, e
+   o cruzamento dos dois eixos é que aponta para ele — mesma amplitude
+   (45°/28°) e mesma suavização (0.14 por quadro) do app. */
+(function(){
+  var mark = document.getElementById("mark");
+  var g = document.getElementById("mk");
+  if (!mark || !g) return;
+
+  var R = 88;                        /* raio na viewBox centrada da capa */
+  var AP = .15, GAP = 40, ANCHOR = true;   /* abertura do "e", como no preset */
+  var REST_Y = 22, REST_X = 10;      /* pose de repouso: um três-quartos */
+  var AMPY = 45, AMPX = 28, EASE = .14;
+
+  var tY = 0, tX = 0, cY = 0, cX = 0, raf = 0, viva = false;
+  var NS = "http://www.w3.org/2000/svg", pool = [];
+
+  function clamp(v, a, b){ return v < a ? a : v > b ? b : v; }
+  function rad(a){ return a * Math.PI / 180; }
+  function lerpPt(a, b, t){ return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }; }
+
+  /* gira em Y, depois inclina em X; z > 0 é a metade da frente */
+  function project(lat, lon, rotY, rotX){
+    var la = rad(lat), lo = rad(lon);
+    var x = Math.cos(la) * Math.sin(lo), y = Math.sin(la), z = Math.cos(la) * Math.cos(lo);
+    var x1 = x * Math.cos(rotY) + z * Math.sin(rotY);
+    var z1 = -x * Math.sin(rotY) + z * Math.cos(rotY);
+    var y2 = y * Math.cos(rotX) - z1 * Math.sin(rotX);
+    var z2 = y * Math.sin(rotX) + z1 * Math.cos(rotX);
+    return { x: x1 * R, y: -y2 * R, z: z2 };
+  }
+
+  function ptsToD(pts){
+    var u = [], eps = 1e-6;
+    for (var i = 0; i < pts.length; i++){
+      var q = u[u.length - 1];
+      if (q && Math.abs(pts[i].x - q.x) < eps && Math.abs(pts[i].y - q.y) < eps) continue;
+      u.push(pts[i]);
+    }
+    if (u.length < 2) return "";
+    var d = "";
+    for (var k = 0; k < u.length; k++) d += (k ? "L" : "M") + u[k].x.toFixed(2) + " " + u[k].y.toFixed(2);
+    return d;
+  }
+
+  /* todo ponto de z = 0 está sobre a silhueta: reescalar para o raio põe
+     o corte em cima dela, e não por dentro como faria a corda interpolada */
+  function onRim(p){
+    var m = Math.hypot(p.x, p.y) || 1;
+    return { x: p.x * R / m, y: p.y * R / m };
+  }
+  function corte(a, b){ return onRim(lerpPt(a, b, a.z / (a.z - b.z))); }
+
+  /* parte o anel nos trechos da frente e fecha cada ponta na borda */
+  function recorta(pts){
+    var n = pts.length, runs = [], cur = null;
+    for (var i = 0; i < n; i++){
+      if (pts[i].z >= 0){
+        if (!cur){ cur = []; if (i > 0) cur.push(corte(pts[i - 1], pts[i])); runs.push(cur); }
+        cur.push(pts[i]);
+      } else if (cur){
+        cur.push(corte(pts[i - 1], pts[i]));
+        cur = null;
+      }
+    }
+    /* anel cortado no índice 0: as duas pontas são o mesmo trecho */
+    if (runs.length > 1 && pts[0].z >= 0 && pts[n - 1].z >= 0){
+      runs.push(runs.pop().concat(runs.shift()));
+    }
+    return runs.map(ptsToD).filter(Boolean);
+  }
+
+  function meridiano(lon, rotY, rotX){
+    var pts = [], i;
+    for (i = 0; i <= 72; i++) pts.push(project(-90 + 180 * i / 72, lon, rotY, rotX));
+    for (i = 1; i <= 72; i++) pts.push(project(90 - 180 * i / 72, lon + 180, rotY, rotX));
+    pts.push(pts[0]);
+    return pts;
+  }
+  /* amostrar já no ângulo girado mantém o desenho idêntico em qualquer
+     rotação, em vez de cintilar sub-pixel com a fase das amostras */
+  function paralelo(lat, rotY, rotX){
+    var pts = [], off = rotY * 180 / Math.PI;
+    for (var i = 0; i <= 96; i++) pts.push(project(lat, -180 + 360 * i / 96 - off, rotY, rotX));
+    return pts;
+  }
+  /* ângulo 0 = 3h, onde o equador toca a silhueta: é ali que a abertura
+     do "e" nasce, qualquer que seja a rotação */
+  function silhueta(){
+    var span = AP * 144;
+    var s = ANCHOR ? span : GAP + span / 2;
+    var e = ANCHOR ? 360 : GAP + 360 - span / 2;
+    var pts = [];
+    for (var i = 0; i <= 120; i++){
+      var a = rad(s + (e - s) * i / 120);
+      pts.push({ x: R * Math.cos(a), y: R * Math.sin(a) });
+    }
+    return ptsToD(pts);
+  }
+
+  function via(i){
+    if (!pool[i]){ pool[i] = document.createElementNS(NS, "path"); g.appendChild(pool[i]); }
+    return pool[i];
+  }
+  function desenha(){
+    var rotY = rad(REST_Y + cY), rotX = rad(REST_X + cX);
+    var ds = [silhueta()]
+      .concat(recorta(meridiano(0, rotY, rotX)))
+      .concat(recorta(paralelo(0, rotY, rotX)));
+    var n = Math.max(ds.length, pool.length);
+    for (var i = 0; i < n; i++){
+      var p = via(i);
+      if (i < ds.length){ p.setAttribute("d", ds[i]); p.removeAttribute("display"); }
+      else p.setAttribute("display", "none");
+    }
+  }
+
+  function tick(){
+    var dY = tY - cY, dX = tX - cX;
+    if (Math.abs(dY) < .08 && Math.abs(dX) < .08){
+      cY = tY; cX = tX; desenha(); raf = 0; return;
+    }
+    cY += dY * EASE; cX += dX * EASE;
+    desenha();
+    raf = requestAnimationFrame(tick);
+  }
+  function acorda(){ if (!raf) raf = requestAnimationFrame(tick); }
+  function repouso(){ tY = tX = 0; acorda(); }
+
+  desenha();
+  if (reduce) return;   /* movimento reduzido: fica na pose de repouso */
+
+  window.addEventListener("pointermove", function(e){
+    if (!viva || e.pointerType === "touch") return;
+    var r = mark.getBoundingClientRect();
+    var nx = clamp((e.clientX - (r.left + r.width / 2)) / (window.innerWidth / 2), -1, 1);
+    var ny = clamp((e.clientY - (r.top + r.height / 2)) / (window.innerHeight / 2), -1, 1);
+    tY = nx * AMPY; tX = ny * AMPX;
+    acorda();
+  });
+  document.addEventListener("pointerleave", repouso);
+  window.addEventListener("blur", repouso);
+
+  /* fora da capa o ponteiro não pilota mais, e a marca volta ao repouso */
+  new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      viva = e.isIntersecting;
+      if (!viva) repouso();
+    });
+  }, { threshold: 0.25 }).observe(mark);
+})();
+
 /* ============ 01 · impulso ============
    Marcha lenta constante e um surto no clique: a casca recua, a câmara
    acende e o escape sai por baixo do botão. O empuxo volta sozinho para

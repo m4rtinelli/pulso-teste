@@ -123,8 +123,11 @@ main{position:relative; z-index:1}
 .copy .num{font-family:var(--mono); font-size:12px; letter-spacing:.24em; color:var(--text-mut); display:block}
 .copy h2{
   font-size:clamp(46px,6.6vw,86px); line-height:.92; letter-spacing:-.045em; font-weight:660;
-  margin:14px 0 26px; text-transform:lowercase;
+  margin:14px 0 20px; text-transform:lowercase;
 }
+/* o porquê da propulsão daquela seção — duas frases, no máximo */
+.copy p{font-size:15px; line-height:1.66; color:var(--text-soft); max-width:46ch; margin-bottom:24px}
+.copy p b{color:var(--text); font-weight:600}
 .chips{list-style:none; display:flex; flex-wrap:wrap; gap:8px}
 .chips li{
   font-family:var(--mono); font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
@@ -139,7 +142,10 @@ main{position:relative; z-index:1}
 .hero .sub{font-family:var(--mono); font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:var(--text-mut)}
 .mark{position:relative; width:236px; height:236px; display:grid; place-items:center; margin:0 auto}
 .mark svg{width:152px;height:152px; overflow:visible; animation:markbeat 3.4s cubic-bezier(.36,.07,.19,.97) infinite}
-.mark svg path,.mark svg circle{fill:none; stroke:var(--accent); stroke-width:13; stroke-linecap:square}
+/* as pontas redondas ficam exatamente na borda externa do aro: o cap
+   avança meio traço a partir do raio, que é onde o aro termina */
+.mark svg path{fill:none; stroke:var(--accent); stroke-width:13;
+  stroke-linecap:round; stroke-linejoin:round}
 @keyframes markbeat{0%,100%{transform:scale(1)}12%{transform:scale(1.075)}24%{transform:scale(.985)}36%{transform:scale(1.03)}52%{transform:scale(1)}}
 .ring{position:absolute; inset:0; border-radius:50%; border:1.5px solid var(--accent); opacity:0;
   animation:ringout 3.4s cubic-bezier(.2,.7,.3,1) infinite}
